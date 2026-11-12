@@ -221,7 +221,7 @@
         </select>
       </label>
       <button id="sound" class="chip" aria-pressed="false">🔇 소리</button>
-      <button id="theme" class="chip" aria-label="화면 테마 바꾸기">🌓 자동</button>
+      <button id="theme" class="chip" title="화면 테마 바꾸기">🌓 자동</button>
     </div>
   </header>
 
@@ -559,14 +559,25 @@
       sound: v.sound === true,
       acc, total,
       theme: THEMES.includes(v.theme) ? v.theme : 'auto',
-      history: Array.isArray(v.history) ? v.history.filter(h => h && Number.isFinite(h.total)).slice(0, 20) : [],
+      history: Array.isArray(v.history) ? v.history.filter(h => h && Number.isFinite(h.total) && Number.isFinite(h.d)).slice(0, 20)
+        .map(h => ({ d: h.d, total: Math.max(0, h.total), course: Math.max(0, Math.floor(+h.course || 0)),
+                     laps: Math.max(0, Math.floor(+h.laps || 0)), best: Math.max(0, +h.best || 0) })) : [],
     };
   }
   let st = { ...DEF }, perfSince = null;
   // live timing uses performance.now() (immune to clock changes); Date.now() anchors persistence and sleep/wake re-sync
   const resync = () => { perfSince = st.since === null ? null : performance.now() - Math.max(0, Date.now() - st.since); };
+  const OLD_KEYS = ['agility-stopwatch-v2', 'agility-stopwatch-v1'];
   function load() {
-    try { st = sanitize(JSON.parse(localStorage.getItem(KEY))); } catch (e) { st = { ...DEF }; }
+    try {
+      let raw = localStorage.getItem(KEY);
+      if (raw === null) {
+        // migrate data saved by earlier versions so nobody loses their timer, laps or dog
+        const old = OLD_KEYS.map(k => localStorage.getItem(k)).find(v => v !== null);
+        if (old) { raw = old; localStorage.setItem(KEY, JSON.stringify(sanitize(JSON.parse(old)))); }
+      }
+      st = sanitize(JSON.parse(raw));
+    } catch (e) { st = { ...DEF }; }
     resync();
   }
   const save = () => { try { localStorage.setItem(KEY, JSON.stringify(st)); } catch (e) {} };
@@ -934,6 +945,9 @@
   }
   function toggle() {
     if (running()) {
+      // settle any course lap finished while the tab was hidden, so cumulative laps are never lost
+      const done = Math.floor(elapsed() / st.lapDur);
+      if (done > lastCourseLap) { const n = done - lastCourseLap; lastCourseLap = done; celebrate(done, n); }
       st.base = elapsed(); st.since = null; perfSince = null; cancelAnimationFrame(raf);
       announce(`정지, ${fmtFull(st.base)}`); setWake(false);
     } else {
@@ -988,7 +1002,9 @@
   }
 
   // keep mouse clicks from leaving focus on a button (so Space always means start/stop)
-  [mainBtn, secBtn].forEach(b => b.addEventListener('mousedown', e => e.preventDefault()));
+  [mainBtn, secBtn, ...document.querySelectorAll('.chip')].forEach(b => b.addEventListener('mousedown', e => e.preventDefault()));
+  // after picking a value, hand focus back so Space / L / R work right away
+  ['lapDur', 'fur', 'ears', 'acc'].forEach(id => $(id).addEventListener('change', e => setTimeout(() => e.target.blur(), 0)));
   mainBtn.addEventListener('click', toggle);
   secBtn.addEventListener('click', () => running() ? lap() : reset());
   lapSel.addEventListener('change', () => { st.lapDur = +lapSel.value; segs = buildTimeline(); save(); renderLaps(); frame(); });
@@ -997,7 +1013,11 @@
     if (e.ctrlKey || e.metaKey || e.altKey || e.repeat) return;               // never hijack Ctrl+R etc.
     const tag = e.target.tagName;
     if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA' || tag === 'SUMMARY') return;
-    if (e.code === 'Space') { if (tag === 'BUTTON') return; e.preventDefault(); toggle(); }  // focused buttons keep their own Space
+    if (e.code === 'Space') {
+      // only the lap/reset and undo buttons keep their own Space; everywhere else Space = start/stop
+      if (e.target === secBtn || e.target === $('undoBtn') || e.target === mainBtn) return;
+      e.preventDefault(); toggle();
+    }
     else if (e.code === 'KeyL') lap();                                        // e.code works in Korean IME too
     else if (e.code === 'KeyR') reset();
   });
@@ -1010,7 +1030,7 @@
     dog.dataset.acc = st.acc;
     $('fur').value = st.fur; $('ears').value = st.ears; $('dogName').value = st.name;
     const sb = $('sound'); sb.setAttribute('aria-pressed', String(st.sound)); sb.textContent = st.sound ? '🔊 소리' : '🔇 소리';
-    const th = $('theme'); th.textContent = { auto: '🌓 자동', light: '☀️ 라이트', dark: '🌙 다크' }[st.theme];
+    const th = $('theme'); th.textContent = { auto: '🌓 테마: 자동', light: '☀️ 테마: 라이트', dark: '🌙 테마: 다크' }[st.theme];
     if (st.theme === 'auto') delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = st.theme;
   }
   $('fur').addEventListener('change', e => { st.fur = e.target.value; applyLook(); save(); });
