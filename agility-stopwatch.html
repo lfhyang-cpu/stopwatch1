@@ -40,6 +40,7 @@
     --tire: #3a3a3a; --hud: rgba(23,35,27,.92);
   }
   * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
   body { margin: 0; background: var(--bg); color: var(--text);
     font-family: "Jua", -apple-system, "Segoe UI", "Malgun Gothic", sans-serif; }
   .app { max-width: 1040px; margin: 0 auto; padding: 16px; }
@@ -103,6 +104,15 @@
   .controls button:active { transform: translateY(3px); box-shadow: 0 1px 0 rgba(0,0,0,.14); }
   .controls button:disabled { opacity: .45; cursor: default; }
   button:focus-visible, select:focus-visible, input:focus-visible, summary:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+  #jumpBtn { background: #2563eb; color: #fff; }
+  #jumpBtn.ready { animation: ready .5s ease-in-out infinite alternate; }
+  @keyframes ready { from { box-shadow: 0 4px 0 rgba(0,0,0,.14), 0 0 0 0 rgba(37,99,235,.5); } to { box-shadow: 0 4px 0 rgba(0,0,0,.14), 0 0 0 10px rgba(37,99,235,0); } }
+  .judge { animation: judge .9s ease-out forwards; }
+  @keyframes judge { 0% { opacity: 0; transform: translateY(10px) scale(.7); } 20% { opacity: 1; transform: translateY(0) scale(1.15); } 100% { opacity: 0; transform: translateY(-40px) scale(1); } }
+  .fallbar { animation: fallbar .7s cubic-bezier(.4,0,.8,.6) forwards; transform-box: fill-box; transform-origin: 50% 50%; }
+  @keyframes fallbar { to { transform: translate(24px, 58px) rotate(70deg); opacity: .4; } }
+  .shake { animation: shake .3s linear; }
+  @keyframes shake { 25% { transform: translate(-4px, 2px); } 50% { transform: translate(4px, -2px); } 75% { transform: translate(-2px, 1px); } }
   #main.start { background: var(--go); color: #fff; }
   #main.stop { background: var(--stop); color: #fff; }
   .hint { text-align: center; color: var(--muted); font-size: 14px; margin: 6px 0 14px; }
@@ -229,6 +239,7 @@
           <option value="60000">1분</option>
         </select>
       </label>
+      <button id="game" class="chip" aria-pressed="false" title="허들·타이어 앞에서 직접 점프 버튼을 눌러요">🎮 직접 조작</button>
       <button id="sound" class="chip" aria-pressed="false">🔇 소리</button>
       <button id="theme" class="chip" title="화면 테마 바꾸기">🌓 테마: 자동</button>
     </div>
@@ -256,6 +267,7 @@
     <div class="hud">
       <div class="time" aria-hidden="true"><span id="tMain">00:00</span><span class="ms" id="tMs">.00</span></div>
       <div class="hud-row"><span>🏁 <b id="courseLaps">0바퀴</b></span><span>📍 <b id="zone">출발 준비</b></span></div>
+      <div class="hud-row" id="scoreRow" hidden><span>⭐ <b id="score">0</b>점</span><span>🔥 콤보 <b id="combo">0</b></span><span>🏆 최고 <b id="bestScore">0</b></span></div>
     </div>
     <div class="scene-wrap">
       <svg id="scene" viewBox="0 0 1000 560" role="img" aria-label="푸들 캐릭터가 어질리티 코스를 옆으로 달리며 장애물을 넘는 화면. 시간이 흐르면 코스를 따라 이동합니다.">
@@ -306,6 +318,11 @@
           <path id="bubbleTip" fill="#fff" stroke="#1f2a1c" stroke-width="2"/>
           <text id="bubbleText" font-family="Jua, sans-serif" font-size="20" fill="#1f2a1c" text-anchor="middle"></text>
         </g>
+        <g id="ring" pointer-events="none" style="display:none">
+          <circle id="ringC" fill="none" stroke-width="6"/>
+          <text id="ringT" font-family="Jua, sans-serif" font-size="22" text-anchor="middle" fill="#fff" stroke="#1f2a1c" stroke-width="4" paint-order="stroke">점프!</text>
+        </g>
+        <g id="judgeLayer" pointer-events="none"></g>
         <g id="confettiLayer"></g>
       </svg>
       <div class="toast" id="toast" aria-hidden="true"></div>
@@ -317,9 +334,10 @@
 
   <div class="controls">
     <button id="secondary" disabled aria-keyshortcuts="L R">랩</button>
+    <button id="jumpBtn" hidden aria-keyshortcuts="J ArrowUp">🦘 점프</button>
     <button id="main" class="start" aria-keyshortcuts="Space">시작</button>
   </div>
-  <p class="hint"><kbd>Space</kbd> 시작/정지 · <kbd>L</kbd> 랩 · <kbd>R</kbd> 리셋 (한글 입력 상태에서도 동작)</p>
+  <p class="hint"><kbd>Space</kbd> 시작/정지 · <kbd>L</kbd> 랩 · <kbd>R</kbd> 리셋 · 직접 조작 모드: <kbd>J</kbd>·<kbd>↑</kbd> 또는 화면 탭으로 점프 (한글 입력 상태에서도 동작)</p>
   <div class="laps" id="lapsBox" hidden>
     <div class="laps-head"><h2>랩 기록</h2><button class="chip" id="share">📤 결과 공유</button></div>
     <table>
@@ -582,7 +600,7 @@
   const ACCS = [['none', '없음', 0], ['cap', '야구모자', 5], ['glasses', '선글라스', 20], ['crown', '왕관', 50]];
   const THEMES = ['auto', 'light', 'dark'];
   const DEF = { base: 0, since: null, laps: [], lapDur: 30000, name: '', fur: 'apricot', sound: false,
-                acc: 'none', total: 0, theme: 'auto', history: [] };
+                acc: 'none', total: 0, theme: 'auto', history: [], game: false, score: 0, combo: 0, best: 0 };
 
   function sanitize(v) {
     if (!v || typeof v !== 'object') return { ...DEF };
@@ -601,7 +619,9 @@
       theme: THEMES.includes(v.theme) ? v.theme : 'auto',
       history: Array.isArray(v.history) ? v.history.filter(h => h && Number.isFinite(h.total) && Number.isFinite(h.d)).slice(0, 20)
         .map(h => ({ d: h.d, total: Math.max(0, h.total), course: Math.max(0, Math.floor(+h.course || 0)),
-                     laps: Math.max(0, Math.floor(+h.laps || 0)), best: Math.max(0, +h.best || 0) })) : [],
+                     laps: Math.max(0, Math.floor(+h.laps || 0)), best: Math.max(0, +h.best || 0), score: Math.max(0, Math.floor(+h.score || 0)) })) : [],
+      game: v.game === true,
+      score: Math.floor(num(v.score, 0)), combo: Math.floor(num(v.combo, 0)), best: Math.floor(num(v.best, 0)),
     };
   }
   let st = { ...DEF }, perfSince = null;
@@ -664,6 +684,27 @@
     const g = list[list.length - 1]; return { g, k: 1 };
   }
   segs = buildTimeline();
+
+  /* ================= game mode: the player times the jumps =================
+     The dog's position stays locked to the stopwatch; the player only decides HOW each
+     hurdle/tire goes: PERFECT / GOOD (clean jump, score + combo) or MISS (knocks the bar). */
+  const JUMP_KINDS = ['hurdle', 'tire'];
+  const WIN_EARLY = 0.45, WIN_LATE = 0.12, PERFECT_WIN = 0.12, CUE_LEAD = 1.0;
+  const grade = diff => diff < -WIN_EARLY || diff > WIN_LATE ? null : Math.abs(diff) <= PERFECT_WIN ? 'perfect' : 'good';
+  let jumpTimes = [];
+  const judged = new Map();   // "lap:seg" -> 'perfect' | 'good' | 'miss'
+  let hopUntil = 0;
+  const buildJumps = () => { jumpTimes = segs.filter(g => JUMP_KINDS.includes(g.kind)).map(g => ({ i: g.i, T: g.t0 + 0.15 * g.dur, g })); };
+  buildJumps();
+  // next jump that is still open (or only just closed, so a miss can be recorded)
+  function jumpTarget(tSec) {
+    const lapS = st.lapDur / 1000, L0 = Math.floor(tSec / lapS);
+    for (let L = L0; L <= L0 + 1; L++) for (const j of jumpTimes) {
+      const key = L + ':' + j.i, Tabs = L * lapS + j.T;
+      if (!judged.has(key) && Tabs + WIN_LATE + 0.6 >= tSec) return { key, Tabs, j };
+    }
+    return null;
+  }
 
   /* ================= nodes ================= */
   const dog = $('dog'), pose = $('pose'), shadow = $('shadow'), world = $('world'), worldFront = $('worldFront');
@@ -774,10 +815,13 @@
         else { up = 38 * Math.sin(Math.PI * k); rot = reduceMotion ? 0 : -360 * k; air = true; mood = 'star'; zone = '완주 세리머니!'; }
         break;
       case 'hurdle': case 'tire': {
-        const peak = g.kind === 'hurdle' ? 42 : 20;
+        const res = st.game ? judged.get(courseLap + ':' + g.i) : null;
+        let peak = g.kind === 'hurdle' ? 42 : 20;
+        if (res === 'miss') peak *= .55;                 // clips the bar
+        if (res === 'perfect') peak *= 1.15;
         if (k < .15) { const c = Math.sin(Math.PI * k / .15); sy = 1 - .16 * c; sx = 1 + .1 * c; }
         else { const kk = (k - .15) / .85; up = peak * Math.sin(Math.PI * kk); rot = -20 * Math.cos(Math.PI * kk); sy = 1.08; sx = .94; air = true; }
-        mood = 'jump'; zone = g.o.name; break;
+        mood = res === 'miss' ? 'tired' : res === 'perfect' ? 'star' : 'jump'; zone = g.o.name; break;
       }
       case 'weave': { const w = Math.sin(k * Math.PI * 6); latY = w * 7; kScale = 1 + w * .05; zone = g.o.name; break; }
       case 'tunnel': hidden = true; zone = g.o.name; break;
@@ -806,6 +850,11 @@
         if (next && next.kind === 'tunnel' && g.t1 - tau < .2) { sy = .8; sx = 1.08; rot = 8; }
         if (courseLap >= 4 && f > 0.6 && f < 0.9 && courseLap % 2 === 0) mood = 'tired';
       }
+    }
+
+    // a free hop when the player presses jump with no obstacle in reach
+    if (run && now < hopUntil && (g.kind === 'run' || g.kind === 'weave')) {
+      const hk = 1 - (hopUntil - now) / 320; up += 16 * Math.sin(Math.PI * clamp(hk, 0, 1)); air = true;
     }
 
     if (!run) {
@@ -868,12 +917,29 @@
     // phones: crop to a taller window around the dog
     scene.setAttribute('viewBox', mobileMQ.matches ? '140 150 620 410' : '0 0 1000 560');
 
+    // game mode: timing ring cue + miss detection
+    const ring = $('ring');
+    if (run && st.game) {
+      const tSec = t / 1000, tgt = jumpTarget(tSec);
+      if (tgt && tSec > tgt.Tabs + WIN_LATE) judge(tgt, 'miss');
+      else if (tgt && tSec >= tgt.Tabs - CUE_LEAD) {
+        const lead = tgt.Tabs - tSec, r = 26 + 70 * clamp(lead / CUE_LEAD, 0, 1);
+        const inWin = grade(-lead), col = inWin === 'perfect' ? '#22c55e' : inWin ? '#f59e0b' : '#ffffff';
+        ring.style.display = '';
+        const cx = X0 + 150, cy = GY - 150;
+        $('ringC').setAttribute('cx', cx); $('ringC').setAttribute('cy', cy); $('ringC').setAttribute('r', r.toFixed(1));
+        $('ringC').setAttribute('stroke', col);
+        $('ringT').setAttribute('x', cx); $('ringT').setAttribute('y', cy + 8);
+        $('jumpBtn').classList.toggle('ready', !!inWin);
+      } else { ring.style.display = 'none'; $('jumpBtn').classList.remove('ready'); }
+    } else { ring.style.display = 'none'; $('jumpBtn').classList.remove('ready'); }
+
     if (run) {
       if (g.i !== lastSegI) {
         const prev = segs[lastSegI];
         const resumedMid = lastSegI === -1 && k > 0.05;   // resuming mid-move: no repeated sound / line
         if (!resumedMid) {
-          if (g.kind === 'hurdle' || g.kind === 'tire') SFX.jump();
+          if ((g.kind === 'hurdle' || g.kind === 'tire') && !st.game) SFX.jump();
           if (g.kind === 'tunnel') { SFX.tunnel(); burst(scroll + X0 + 30, GY, 5); }
           if (g.kind === 'break') say(g.b.say, Math.min(1.6, g.dur));
         }
@@ -889,6 +955,55 @@
   }
 
   function loop(now) { frame(now); if (running()) raf = requestAnimationFrame(loop); }
+
+  function judgePopup(text, color) {
+    const g = el('g', { class: 'judge' }, $('judgeLayer'));
+    $('judgeLayer').innerHTML = '';   // one result at a time
+    const tx = el('text', { x: X0 + 170, y: GY - 230, 'font-size': 34, 'font-family': 'Rubik, sans-serif', 'font-weight': 800, fill: color,
+      stroke: '#1f2a1c', 'stroke-width': 6, 'paint-order': 'stroke', 'text-anchor': 'middle' }, g);
+    tx.textContent = text;
+    g.addEventListener('animationend', () => g.remove());
+  }
+  function renderScore() {
+    $('score').textContent = st.score.toLocaleString('ko-KR');
+    $('combo').textContent = st.combo;
+    $('bestScore').textContent = st.best.toLocaleString('ko-KR');
+  }
+  function judge(tgt, res) {
+    judged.set(tgt.key, res);
+    if (judged.size > 200) judged.delete(judged.keys().next().value);
+    if (res === 'miss') {
+      st.combo = 0;
+      judgePopup('MISS', '#f87171'); say('앗! 😵', .9); tone([[220, 110, .25, 'sawtooth', .07]]); buzz(60);
+      // knocked bar / bonk on the obstacle the dog was clearing
+      const barX = wx((tgt.j.g.f0 + tgt.j.g.f1) / 2);   // fx layer lives in world coordinates
+      const fb = el('g', { class: 'fallbar' }, $('fx'));
+      if (tgt.j.g.kind === 'hurdle') {
+        el('rect', { x: barX - 30, y: GY - 64, width: 60, height: 8, rx: 4, fill: '#ff4d4d', stroke: '#3b2414', 'stroke-width': 2 }, fb);
+      } else {
+        const tx = el('text', { x: barX, y: GY - 150, 'font-size': 30, 'text-anchor': 'middle' }, fb); tx.textContent = '💥';
+      }
+      fb.addEventListener('animationend', () => fb.remove());
+      if (!reduceMotion) { scene.classList.remove('shake'); void scene.getBoundingClientRect(); scene.classList.add('shake'); }
+    } else {
+      st.combo += 1;
+      const pts = Math.round((res === 'perfect' ? 100 : 50) * (1 + Math.min(st.combo - 1, 10) * 0.1));
+      st.score += pts;
+      judgePopup(res === 'perfect' ? `PERFECT +${pts}` : `GOOD +${pts}`, res === 'perfect' ? '#4ade80' : '#fbbf24');
+      if (st.combo > 1 && st.combo % 5 === 0) showToast(`🔥 ${st.combo} 콤보!`);
+      tone(res === 'perfect' ? [[660, 1320, .16, 'triangle']] : [[520, 780, .14]]); buzz(15);
+      if (res === 'perfect') burst(wx(tgt.j.g.f0) + 40, GY - 60, 6);
+    }
+    if (st.score > st.best) st.best = st.score;
+    save(); renderScore();
+  }
+  function jump() {
+    if (!st.game || !running()) return;
+    const tSec = elapsed() / 1000, tgt = jumpTarget(tSec);
+    const res = tgt ? grade(tSec - tgt.Tabs) : null;
+    if (tgt && res) judge(tgt, res);
+    else { hopUntil = performance.now() + 320; tone([[400, 560, .1, 'sine', .06]]); }
+  }
 
   function dust(x, y, dx, dy) {
     const c = el('circle', { cx: x, cy: y, r: 7, fill: 'var(--dirtEdge)', class: 'dust' }, $('fx'));
@@ -964,7 +1079,7 @@
       const d = new Date(h.d), li = document.createElement('li');
       const left = document.createElement('span'), main = document.createElement('span'), sub = document.createElement('span'), date = document.createElement('span');
       main.className = 'h-main'; main.textContent = fmtFull(h.total);
-      sub.className = 'h-sub'; sub.textContent = ` · 코스 ${h.course}바퀴 · 랩 ${h.laps}개${h.best ? ' · 최고 랩 ' + fmtFull(h.best) : ''}`;
+      sub.className = 'h-sub'; sub.textContent = ` · 코스 ${h.course}바퀴 · 랩 ${h.laps}개${h.best ? ' · 최고 랩 ' + fmtFull(h.best) : ''}${h.score ? ' · 🎮 ' + h.score.toLocaleString('ko-KR') + '점' : ''}`;
       date.className = 'h-sub'; date.textContent = `${d.getMonth() + 1}/${d.getDate()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
       left.append(main, sub); li.append(left, date); list.appendChild(li);
     });
@@ -1018,10 +1133,10 @@
   function reset() {
     if (running() || elapsed() === 0) return;
     const total = st.base, splits = splitsOf(st.laps);
-    undoState = { base: st.base, laps: st.laps.slice() };
-    st.history.unshift({ d: Date.now(), total, course: Math.floor(total / st.lapDur), laps: st.laps.length, best: splits.length ? Math.min(...splits) : 0 });
+    undoState = { base: st.base, laps: st.laps.slice(), score: st.score, combo: st.combo };
+    st.history.unshift({ d: Date.now(), total, course: Math.floor(total / st.lapDur), laps: st.laps.length, best: splits.length ? Math.min(...splits) : 0, score: st.score });
     st.history = st.history.slice(0, 20);
-    st.base = 0; st.laps = []; lastCourseLap = 0;
+    st.base = 0; st.laps = []; lastCourseLap = 0; st.score = 0; st.combo = 0; judged.clear(); renderScore();
     save(); renderLaps(); renderHistory(); syncButtons(); frame();
     const u = $('undo'); u.inert = false; u.classList.add('show');
     clearTimeout(undoTimer); undoTimer = setTimeout(hideUndo, 5000);
@@ -1029,7 +1144,7 @@
   }
   $('undoBtn').addEventListener('click', () => {
     if (!undoState || running()) return;
-    st.base = undoState.base; st.laps = undoState.laps; st.history.shift();
+    st.base = undoState.base; st.laps = undoState.laps; st.score = undoState.score; st.combo = undoState.combo; st.history.shift(); renderScore();
     lastCourseLap = Math.floor(st.base / st.lapDur);
     hideUndo(); save(); renderLaps(); renderHistory(); syncButtons(); frame(); announce('기록을 되돌렸습니다.');
     mainBtn.focus();
@@ -1038,18 +1153,23 @@
   async function share() {
     const t = elapsed(), splits = splitsOf(st.laps);
     const text = `🐾 ${dogName()}의 어질리티 기록\n⏱ 총 ${fmtFull(t)} · 코스 ${Math.floor(t / st.lapDur)}바퀴\n` +
-      (splits.length ? `🏁 랩 ${splits.length}개 · 가장 빠른 랩 ${fmtFull(Math.min(...splits))}\n` : '') + `🏅 ${titleOf(st.total)}\n${location.href}`;
+      (splits.length ? `🏁 랩 ${splits.length}개 · 가장 빠른 랩 ${fmtFull(Math.min(...splits))}\n` : '') +
+      (st.score ? `🎮 점수 ${st.score.toLocaleString('ko-KR')}점 (최고 ${st.best.toLocaleString('ko-KR')}점)\n` : '') + `🏅 ${titleOf(st.total)}\n${location.href}`;
     try {
       if (navigator.share) { await navigator.share({ text }); return; }
       await navigator.clipboard.writeText(text); showToast('📋 기록을 복사했어요');
     } catch (e) { if (e && e.name !== 'AbortError') showToast('공유하지 못했어요'); }
   }
 
-  [mainBtn, secBtn, ...document.querySelectorAll('.chip')].forEach(b => b.addEventListener('mousedown', e => e.preventDefault()));
+  [mainBtn, secBtn, $('jumpBtn'), ...document.querySelectorAll('.chip')].forEach(b => b.addEventListener('mousedown', e => e.preventDefault()));
+  $('jumpBtn').addEventListener('pointerdown', e => { e.preventDefault(); jump(); });   // pointerdown: no click delay on phones
+  $('jumpBtn').addEventListener('keydown', e => { if (e.code === 'Enter' || e.code === 'Space') { e.preventDefault(); e.stopPropagation(); jump(); } });
+  scene.addEventListener('pointerdown', () => jump());
+  $('game').addEventListener('click', () => { st.game = !st.game; judged.clear(); applyLook(); save(); frame(); });
   ['lapDur', 'fur', 'acc'].forEach(id => $(id).addEventListener('change', e => setTimeout(() => e.target.blur(), 0)));
   mainBtn.addEventListener('click', toggle);
   secBtn.addEventListener('click', () => running() ? lap() : reset());
-  lapSel.addEventListener('change', () => { st.lapDur = +lapSel.value; segs = buildTimeline(); save(); renderLaps(); frame(); });
+  lapSel.addEventListener('change', () => { st.lapDur = +lapSel.value; segs = buildTimeline(); buildJumps(); save(); renderLaps(); frame(); });
   $('share').addEventListener('click', share);
   document.addEventListener('keydown', e => {
     if (e.ctrlKey || e.metaKey || e.altKey || e.repeat) return;
@@ -1061,6 +1181,7 @@
     }
     else if (e.code === 'KeyL') lap();
     else if (e.code === 'KeyR') reset();
+    else if (e.code === 'KeyJ' || e.code === 'ArrowUp') { if (st.game && running()) e.preventDefault(); jump(); }
   });
 
   function applyLook() {
@@ -1070,6 +1191,8 @@
     $('fur').value = st.fur; $('dogName').value = st.name;
     const sb = $('sound'); sb.setAttribute('aria-pressed', String(st.sound)); sb.textContent = st.sound ? '🔊 소리' : '🔇 소리';
     $('theme').textContent = { auto: '🌓 테마: 자동', light: '☀️ 테마: 라이트', dark: '🌙 테마: 다크' }[st.theme];
+    const gb = $('game'); gb.setAttribute('aria-pressed', String(st.game)); gb.textContent = st.game ? '🎮 직접 조작 켜짐' : '🎮 직접 조작';
+    $('scoreRow').hidden = !st.game; $('jumpBtn').hidden = !st.game; renderScore();
     if (st.theme === 'auto') delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = st.theme;
   }
   $('fur').addEventListener('change', e => { st.fur = e.target.value; applyLook(); save(); });
@@ -1080,7 +1203,7 @@
 
   window.addEventListener('storage', e => {
     if (e.key !== KEY) return;
-    load(); segs = buildTimeline(); applyLook(); renderCustom(); renderLaps(); renderHistory(); syncButtons();
+    load(); segs = buildTimeline(); buildJumps(); applyLook(); renderCustom(); renderLaps(); renderHistory(); syncButtons();
     lastCourseLap = Math.floor(elapsed() / st.lapDur);
     cancelAnimationFrame(raf); if (running()) raf = requestAnimationFrame(loop); else frame();
   });
@@ -1120,6 +1243,12 @@
     ok('sanitize(null) gives defaults', sanitize(null).lapDur === 30000);
     const laps = [1230, 2470, 3700].map(t => Math.floor(t / 10) * 10), sp = splitsOf(laps);
     ok('splits add up to total', sp.reduce((a, b) => a + b, 0) === laps[laps.length - 1]);
+    ok('jump grading', grade(0) === 'perfect' && grade(-0.1) === 'perfect' && grade(-0.3) === 'good' && grade(0.11) === 'perfect' && grade(-0.5) === null && grade(0.2) === null);
+    for (const d of DURS) {
+      const tl = buildTimeline(d), js = tl.filter(g => JUMP_KINDS.includes(g.kind)).map(g => g.t0 + .15 * g.dur);
+      const gaps = js.slice(1).map((v, i) => v - js[i]);
+      ok(`${d / 1000}s: jump windows never overlap`, gaps.every(x => x > WIN_EARLY + WIN_LATE), gaps.map(x => x.toFixed(2)).join(','));
+    }
     const failed = out.filter(r => !r.pass);
     console.table(out);
     return { passed: out.length - failed.length, failed: failed.length, total: out.length, failures: failed };
